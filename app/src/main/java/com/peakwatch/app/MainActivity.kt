@@ -51,7 +51,9 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-// المرحلة 3: استماع + ثلاثة أوامر (معلومات، عثور، مزامنة الوقت). الأخير يضبط وقت الساعة على وقت الهاتف فقط.
+// المرحلة 4: استماع + أوامر محددة مأخوذة من كود Wearfit Pro:
+// معلومات، عثور، مزامنة الوقت، نظام الوقت (7C)، رفع المعصم لإضاءة الشاشة (77).
+// معنى القيمتين 0 و 1 في الأخيرين غير مثبت بعد: نكتشفه بمراقبة الساعة.
 // الأمران مأخوذان حرفيًا من كود Wearfit Pro (دوال findBand و getDeviceInfoData)،
 // وكلاهما أقصر من 20 بايتًا فيخرجان بلا تقطيع. لا توجد في التطبيق أي خانة لإرسال بايتات حرة.
 const val WATCH_MAC = "C0:25:AB:69:43:19"
@@ -80,6 +82,11 @@ fun buildTimeSync(): ByteArray {
         c.get(java.util.Calendar.SECOND).toByte()
     )
 }
+
+// AB 00 04 FF [أمر] 80 [قيمة]  (قالب الأوامر ذات القيمة الواحدة)
+fun cmd4(cmd: Int, value: Int) = byteArrayOf(
+    0xAB.toByte(), 0x00, 0x04, 0xFF.toByte(), cmd.toByte(), 0x80.toByte(), value.toByte()
+)
 
 @SuppressLint("MissingPermission")
 class BleListener(private val context: Context) {
@@ -244,7 +251,7 @@ class BleListener(private val context: Context) {
 fun Screen(ble: BleListener, requestConnect: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Text("PeakWatch: اختبار 3", style = MaterialTheme.typography.titleMedium)
+        Text("PeakWatch: اختبار 4", style = MaterialTheme.typography.titleMedium)
         Text(ble.statusText)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -257,6 +264,14 @@ fun Screen(ble: BleListener, requestConnect: () -> Unit) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { ble.send("مزامنة الوقت", buildTimeSync()) }) { Text("مزامنة الوقت") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { ble.send("نظام الوقت = 1", cmd4(0x7C, 1)) }) { Text("نظام الوقت = 1") }
+            OutlinedButton(onClick = { ble.send("نظام الوقت = 0", cmd4(0x7C, 0)) }) { Text("نظام الوقت = 0") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { ble.send("رفع المعصم = 1", cmd4(0x77, 1)) }) { Text("رفع المعصم = 1") }
+            OutlinedButton(onClick = { ble.send("رفع المعصم = 0", cmd4(0x77, 0)) }) { Text("رفع المعصم = 0") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
