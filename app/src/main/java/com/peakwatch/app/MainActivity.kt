@@ -51,7 +51,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-// المرحلة 2: استماع + أمران فقط لا يغيّران إعدادات الساعة.
+// المرحلة 3: استماع + ثلاثة أوامر (معلومات، عثور، مزامنة الوقت). الأخير يضبط وقت الساعة على وقت الهاتف فقط.
 // الأمران مأخوذان حرفيًا من كود Wearfit Pro (دوال findBand و getDeviceInfoData)،
 // وكلاهما أقصر من 20 بايتًا فيخرجان بلا تقطيع. لا توجد في التطبيق أي خانة لإرسال بايتات حرة.
 const val WATCH_MAC = "C0:25:AB:69:43:19"
@@ -64,6 +64,22 @@ val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 val CMD_FIND = byteArrayOf(0xAB.toByte(), 0x00, 0x03, 0xFF.toByte(), 0x71, 0x80.toByte())
 // AB 00 04 FF 92 80 01  (getDeviceInfoData: طلب معلومات الجهاز، قراءة فقط)
 val CMD_INFO = byteArrayOf(0xAB.toByte(), 0x00, 0x04, 0xFF.toByte(), 0x92.toByte(), 0x80.toByte(), 0x01)
+
+// AB 00 0B FF 93 80 00 [سنة: بايتان] [شهر 1-12] [يوم] [ساعة 0-23] [دقيقة] [ثانية]
+// (setTimeSync في Wearfit Pro؛ الشهر يبدأ من 1 كما في DateModel)
+fun buildTimeSync(): ByteArray {
+    val c = java.util.Calendar.getInstance()
+    val y = c.get(java.util.Calendar.YEAR)
+    return byteArrayOf(
+        0xAB.toByte(), 0x00, 0x0B, 0xFF.toByte(), 0x93.toByte(), 0x80.toByte(), 0x00,
+        ((y and 0xFF00) shr 8).toByte(), (y and 0xFF).toByte(),
+        (c.get(java.util.Calendar.MONTH) + 1).toByte(),
+        c.get(java.util.Calendar.DAY_OF_MONTH).toByte(),
+        c.get(java.util.Calendar.HOUR_OF_DAY).toByte(),
+        c.get(java.util.Calendar.MINUTE).toByte(),
+        c.get(java.util.Calendar.SECOND).toByte()
+    )
+}
 
 @SuppressLint("MissingPermission")
 class BleListener(private val context: Context) {
@@ -228,7 +244,7 @@ class BleListener(private val context: Context) {
 fun Screen(ble: BleListener, requestConnect: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Text("PeakWatch: اختبار 2", style = MaterialTheme.typography.titleMedium)
+        Text("PeakWatch: اختبار 3", style = MaterialTheme.typography.titleMedium)
         Text(ble.statusText)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -238,6 +254,9 @@ fun Screen(ble: BleListener, requestConnect: () -> Unit) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { ble.send("طلب معلومات الجهاز", CMD_INFO) }) { Text("معلومات الجهاز") }
             Button(onClick = { ble.send("العثور على الساعة", CMD_FIND) }) { Text("اعثر على الساعة") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { ble.send("مزامنة الوقت", buildTimeSync()) }) { Text("مزامنة الوقت") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
