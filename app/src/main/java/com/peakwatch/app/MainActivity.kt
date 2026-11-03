@@ -51,13 +51,19 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
-// المرحلة 1: استماع فقط.
-// هذا التطبيق لا يكتب أي أمر على الساعة. الكتابة الوحيدة هي تفعيل الاشتراك
-// في الإشعارات (CCCD)، وهي إجراء BLE قياسي وليست أمرًا للساعة.
+// المرحلة 2: استماع + أمران فقط لا يغيّران إعدادات الساعة.
+// الأمران مأخوذان حرفيًا من كود Wearfit Pro (دوال findBand و getDeviceInfoData)،
+// وكلاهما أقصر من 20 بايتًا فيخرجان بلا تقطيع. لا توجد في التطبيق أي خانة لإرسال بايتات حرة.
 const val WATCH_MAC = "C0:25:AB:69:43:19"
 val SERVICE_UART: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
 val CHAR_NOTIFY: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
+val CHAR_WRITE: UUID = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
 val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+// AB 00 03 FF 71 80  (findBand: العثور على الساعة)
+val CMD_FIND = byteArrayOf(0xAB.toByte(), 0x00, 0x03, 0xFF.toByte(), 0x71, 0x80.toByte())
+// AB 00 04 FF 92 80 01  (getDeviceInfoData: طلب معلومات الجهاز، قراءة فقط)
+val CMD_INFO = byteArrayOf(0xAB.toByte(), 0x00, 0x04, 0xFF.toByte(), 0x92.toByte(), 0x80.toByte(), 0x01)
 
 @SuppressLint("MissingPermission")
 class BleListener(private val context: Context) {
@@ -113,6 +119,32 @@ class BleListener(private val context: Context) {
         setStatus("غير متصل")
     }
 
+    fun send(name: String, bytes: ByteArray) {
+        val g = gatt
+        if (g == null) {
+            add("غير متصل. اضغط اتصال أولًا")
+            return
+        }
+        val ch = g.getService(SERVICE_UART)?.getCharacteristic(CHAR_WRITE)
+        if (ch == null) {
+            add("لم أجد 6E400002")
+            return
+        }
+        add("▶ $name: ${hex(bytes)}")
+        if (Build.VERSION.SDK_INT >= 33) {
+            val r = g.writeCharacteristic(ch, bytes, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+            add("نتيجة الطلب: $r (0 = قُبل للإرسال)")
+        } else {
+            @Suppress("DEPRECATION")
+            ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            @Suppress("DEPRECATION")
+            ch.value = bytes
+            @Suppress("DEPRECATION")
+            val ok = g.writeCharacteristic(ch)
+            add("نتيجة الطلب: $ok")
+        }
+    }
+
     private fun handleNotify(value: ByteArray) {
         add("◀ ${value.size}B: ${hex(value)}")
     }
@@ -166,6 +198,14 @@ class BleListener(private val context: Context) {
             if (st == 0) setStatus("متصل: يستمع فقط")
         }
 
+        override fun onCharacteristicWrite(
+            g: BluetoothGatt,
+            c: BluetoothGattCharacteristic,
+            st: Int
+        ) {
+            add("نتيجة الكتابة: status=$st")
+        }
+
         // Android 13 فما فوق
         override fun onCharacteristicChanged(
             g: BluetoothGatt,
@@ -188,12 +228,16 @@ class BleListener(private val context: Context) {
 fun Screen(ble: BleListener, requestConnect: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Text("PeakWatch: اختبار الاستماع", style = MaterialTheme.typography.titleMedium)
+        Text("PeakWatch: اختبار 2", style = MaterialTheme.typography.titleMedium)
         Text(ble.statusText)
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = requestConnect) { Text("اتصال") }
             OutlinedButton(onClick = { ble.disconnect() }) { Text("قطع") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { ble.send("طلب معلومات الجهاز", CMD_INFO) }) { Text("معلومات الجهاز") }
+            Button(onClick = { ble.send("العثور على الساعة", CMD_FIND) }) { Text("اعثر على الساعة") }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = {
